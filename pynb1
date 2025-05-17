@@ -1,0 +1,443 @@
+!pip install biopython xgboost
+from google.colab import drive
+drive.mount('/content/drive')
+# Download and unzip a small human chromosome FASTA file
+!wget https://ftp.ensembl.org/pub/release-111/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz
+!gunzip Homo_sapiens.GRCh38.dna.chromosome.22.fa.gz
+from Bio import SeqIO
+
+# Parse the downloaded FASTA file
+fasta_file = "Homo_sapiens.GRCh38.dna.chromosome.22.fa"
+
+for record in SeqIO.parse(fasta_file, "fasta"):
+    print("Sequence ID:", record.id)
+    print("Sample Sequence (first 200 bases):", record.seq[:200])
+    break  # Only show first record
+def one_hot_encode(seq):
+    mapping = {'A': [1,0,0,0], 'C': [0,1,0,0], 'G': [0,0,1,0], 'T': [0,0,0,1]}
+    return [mapping.get(nuc, [0,0,0,0]) for nuc in seq]
+
+# Slice a small sequence for testing
+small_seq = str(record.seq[:100])
+encoded = one_hot_encode(small_seq)
+print("One-hot encoded shape:", len(encoded), "x", len(encoded[0]))
+import numpy as np
+
+# Simulate dataset with multiple one-hot encoded sequences
+X_data = []
+y_data = []
+
+for record in SeqIO.parse("Homo_sapiens.GRCh38.dna.chromosome.22.fa", "fasta"):
+    sequence = str(record.seq).upper().replace('N', '')  # clean unknowns
+    for i in range(0, 10000, 200):  # Create chunks
+        chunk = sequence[i:i+100]
+        if len(chunk) < 100:
+            continue
+        encoded = one_hot_encode(chunk)
+        X_data.append(encoded)
+        y_data.append(np.random.randint(0, 2))  # Simulate disease (0 or 1)
+    break  # Only use first record for now
+
+X_data = np.array(X_data)
+y_data = np.array(y_data)
+
+print("Shape of X:", X_data.shape)
+print("Shape of y:", y_data.shape)
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
+
+model = Sequential()
+model.add(LSTM(64, input_shape=(100, 4)))  # 100 bases, 4 one-hot
+model.add(Dense(1, activation='sigmoid'))  # Binary output
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+model.summary()
+history = model.fit(X_data, y_data, epochs=5, batch_size=32, validation_split=0.2)
+loss, accuracy = model.evaluate(X_data, y_data)
+print("Training Accuracy:", accuracy)
+def reverse_complement(seq):
+    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+    return ''.join(complement.get(base, base) for base in reversed(seq))
+  X_data = []
+y_data = []
+
+for i in range(0, 10000, 200):
+    chunk = sequence[i:i+100]
+    if len(chunk) < 100 or 'N' in chunk:
+        continue
+    encoded = one_hot_encode(chunk)
+    rev_encoded = one_hot_encode(reverse_complement(chunk))
+    
+    X_data.append(encoded)
+    y_data.append(np.random.randint(0, 2))  # fake label
+    
+    X_data.append(rev_encoded)
+    y_data.append(np.random.randint(0, 2))  # fake label
+
+# Now convert to numpy arrays after all data is added
+X_data = np.array(X_data)
+y_data = np.array(y_data)
+def reverse_complement(seq):
+    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+    return ''.join(complement.get(base, base) for base in reversed(seq))
+  from tensorflow.keras.layers import Dropout, BatchNormalization
+
+model = Sequential()
+model.add(LSTM(128, return_sequences=True, input_shape=(100, 4)))
+model.add(Dropout(0.3))
+model.add(BatchNormalization())
+
+model.add(LSTM(64))
+model.add(Dropout(0.3))
+
+model.add(Dense(32, activation='relu'))
+model.add(Dense(1, activation='sigmoid'))
+
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+
+callbacks = [
+    EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
+    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3)
+  history = model.fit(
+    X_data, y_data,
+    epochs=30,
+    batch_size=64,
+    validation_split=0.2,
+    callbacks=callbacks
+)
+import matplotlib.pyplot as plt
+
+plt.plot(history.history['accuracy'], label='train acc')
+plt.plot(history.history['val_accuracy'], label='val acc')
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.legend()
+plt.title("Model Training Accuracy")
+plt.show()
+import numpy as np
+from Bio import SeqIO
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, BatchNormalization, Layer, Multiply, Permute, RepeatVector, Lambda
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+import tensorflow.keras.backend as K
+import matplotlib.pyplot as plt
+
+# One-hot encode function
+def one_hot_encode(seq):
+    mapping = {'A': [1,0,0,0], 'C': [0,1,0,0], 'G': [0,0,1,0], 'T': [0,0,0,1]}
+    return np.array([mapping.get(nuc, [0,0,0,0]) for nuc in seq])
+
+# Reverse complement function
+def reverse_complement(seq):
+    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+    return ''.join(complement.get(base, base) for base in reversed(seq))
+
+# Attention Layer Definition
+class Attention(Layer):
+    def __init__(self, **kwargs):
+        super(Attention, self).__init__(**kwargs)
+        
+    def build(self, input_shape):
+        self.W = self.add_weight(name='att_weight', shape=(input_shape[-1], input_shape[-1]),
+                                 initializer='random_normal', trainable=True)
+        self.b = self.add_weight(name='att_bias', shape=(input_shape[-1],),
+                                 initializer='zeros', trainable=True)
+        self.u = self.add_weight(name='att_u', shape=(input_shape[-1], 1),
+                                 initializer='random_normal', trainable=True)
+        super(Attention, self).build(input_shape)
+        
+    def call(self, inputs):
+        # inputs shape: (batch_size, time_steps, features)
+        u_t = K.tanh(K.dot(inputs, self.W) + self.b)
+        att = K.softmax(K.squeeze(K.dot(u_t, self.u), -1))
+        att = K.expand_dims(att)
+        weighted_input = inputs * att
+        return K.sum(weighted_input, axis=1)
+    
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], input_shape[-1])
+
+# Load and prepare data
+fasta_file = "Homo_sapiens.GRCh38.dna.chromosome.22.fa"
+
+sequence = ""
+for record in SeqIO.parse(fasta_file, "fasta"):
+    sequence = str(record.seq).upper()
+    break  # only first record
+
+# Prepare data lists
+X_data = []
+y_data = []
+
+# Create chunks + reverse complements with labels (simulate)
+for i in range(0, 10000, 200):
+    chunk = sequence[i:i+100]
+    if len(chunk) < 100 or 'N' in chunk:
+        continue
+    encoded = one_hot_encode(chunk)
+    rev_encoded = one_hot_encode(reverse_complement(chunk))
+    
+    X_data.append(encoded)
+    y_data.append(np.random.randint(0, 2))  # simulated label
+    
+    X_data.append(rev_encoded)
+    y_data.append(np.random.randint(0, 2))  # simulated label
+
+X_data = np.array(X_data)
+y_data = np.array(y_data)
+
+print("Dataset shapes:", X_data.shape, y_data.shape)
+
+# Build model with attention
+inputs = Input(shape=(100,4))
+x = LSTM(128, return_sequences=True)(inputs)
+x = Dropout(0.3)(x)
+x = BatchNormalization()(x)
+
+x = LSTM(64, return_sequences=True)(x)
+x = Dropout(0.3)(x)
+x = BatchNormalization()(x)
+
+attention_output = Attention()(x)
+dense = Dense(32, activation='relu')(attention_output)
+outputs = Dense(1, activation='sigmoid')(dense)
+
+model = Model(inputs, outputs)
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+model.summary()
+
+# Callbacks
+callbacks = [
+    EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
+    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3)
+]
+
+# Train
+history = model.fit(
+    X_data, y_data,
+    epochs=30,
+    batch_size=64,
+    validation_split=0.2,
+    callbacks=callbacks
+)
+
+# Plot accuracy
+plt.plot(history.history['accuracy'], label='train accuracy')
+plt.plot(history.history['val_accuracy'], label='validation accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.title('Training and Validation Accuracy')
+plt.show()
+print(f"Length of sequence loaded: {len(sequence)}")
+print(f"First 100 bases: {sequence[:100]}")
+for i in range(0, 10000, 200):
+    chunk = sequence[i:i+100]
+    if len(chunk) < 100 or 'N' in chunk:
+        continue
+    ...
+count = 0
+for i in range(0, min(len(sequence), 10000), 200):
+    chunk = sequence[i:i+100]
+    if len(chunk) < 100 or 'N' in chunk:
+        continue
+    count += 1
+    ...
+print(f"Number of chunks extracted: {count}")
+for i in range(0, 2000, 100):
+    ...
+import random
+
+def generate_random_dna(length):
+    return ''.join(random.choices('ACGT', k=length))
+
+sequence = generate_random_dna(12000)  # 12k bases synthetic DNA
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.layers import Input, Conv1D, MaxPooling1D, Bidirectional, LSTM, Dense, Dropout, LayerNormalization, GlobalAveragePooling1D, MultiHeadAttention, Flatten
+from tensorflow.keras.models import Model
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+
+def build_superior_model(input_length=100, num_channels=4, num_heads=4, key_dim=32):
+    inputs = Input(shape=(input_length, num_channels))
+    
+    # CNN layer to extract motifs
+    x = Conv1D(filters=64, kernel_size=7, padding='same', activation='relu')(inputs)
+    x = MaxPooling1D(pool_size=2)(x)
+    x = LayerNormalization()(x)
+    
+    # Bidirectional LSTM for sequence context
+    x = Bidirectional(LSTM(128, return_sequences=True))(x)
+    x = Dropout(0.3)(x)
+    x = LayerNormalization()(x)
+    
+    # Multi-head Self Attention
+    attn_output = MultiHeadAttention(num_heads=num_heads, key_dim=key_dim)(x, x)
+    x = Dropout(0.3)(attn_output)
+    x = LayerNormalization()(x)
+    
+    # Global pooling and dense layers
+    x = GlobalAveragePooling1D()(x)
+    x = Dense(64, activation='relu')(x)
+    x = Dropout(0.3)(x)
+    outputs = Dense(1, activation='sigmoid')(x)
+    
+    model = Model(inputs, outputs)
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    return model
+
+model = build_superior_model()
+model.summary()
+
+# Callbacks
+callbacks = [
+    EarlyStopping(monitor='val_loss', patience=6, restore_best_weights=True),
+    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3)
+]
+
+# Assuming X_data, y_data are prepared and balanced
+
+history = model.fit(
+    X_data, y_data,
+    epochs=50,
+    batch_size=64,
+    validation_split=0.2,
+    callbacks=callbacks
+)
+print(f"X_data shape: {np.shape(X_data)}")   # Should be (num_samples, 100, 4)
+print(f"y_data shape: {np.shape(y_data)}")   # Should be (num_samples,)
+print(f"Number of samples: {len(X_data)}")
+import numpy as np
+
+# Generate a synthetic random DNA sequence (length 12,000 bases)
+def generate_random_dna(length=12000):
+    return ''.join(np.random.choice(['A', 'C', 'G', 'T'], size=length))
+
+sequence = generate_random_dna()
+
+# One-hot encoding function for DNA
+def one_hot_encode(seq):
+    mapping = {'A': [1,0,0,0], 'C': [0,1,0,0], 'G': [0,0,1,0], 'T': [0,0,0,1]}
+    return np.array([mapping.get(base, [0,0,0,0]) for base in seq])
+
+# Extract chunks and encode
+chunk_size = 100
+step = 200  # can be smaller for more samples
+
+X_data = []
+y_data = []
+
+for i in range(0, len(sequence) - chunk_size + 1, step):
+    chunk = sequence[i:i+chunk_size]
+    # Filter out invalid chunks if needed (optional)
+    if 'N' in chunk:
+        continue
+    encoded_chunk = one_hot_encode(chunk)
+    X_data.append(encoded_chunk)
+    y_data.append(np.random.randint(0,2))  # random labels, replace with actual labels if available
+
+X_data = np.array(X_data)
+y_data = np.array(y_data)
+
+print(f"Number of samples: {len(X_data)}")
+print(f"Shape of X_data: {X_data.shape}")
+print(f"Shape of y_data: {y_data.shape}")
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X_data, y_data, test_size=0.2, random_state=42, stratify=y_data
+)
+
+print(f"Training samples: {len(X_train)}")
+print(f"Testing samples: {len(X_test)}")
+import tensorflow as tf
+from tensorflow.keras.layers import Input, Conv1D, MaxPooling1D, Bidirectional, LSTM, Dense, Dropout, LayerNormalization, GlobalAveragePooling1D, MultiHeadAttention
+from tensorflow.keras.models import Model
+
+def build_superior_model(input_length=100, num_channels=4, num_heads=4, key_dim=32):
+    inputs = Input(shape=(input_length, num_channels))
+    x = Conv1D(filters=64, kernel_size=7, padding='same', activation='relu')(inputs)
+    x = MaxPooling1D(pool_size=2)(x)
+    x = LayerNormalization()(x)
+    x = Bidirectional(LSTM(128, return_sequences=True))(x)
+    x = Dropout(0.3)(x)
+    x = LayerNormalization()(x)
+    attn_output = MultiHeadAttention(num_heads=num_heads, key_dim=key_dim)(x, x)
+    x = Dropout(0.3)(attn_output)
+    x = LayerNormalization()(x)
+    x = GlobalAveragePooling1D()(x)
+    x = Dense(64, activation='relu')(x)
+    x = Dropout(0.3)(x)
+    outputs = Dense(1, activation='sigmoid')(x)
+    model = Model(inputs, outputs)
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    return model
+
+model = build_superior_model()
+model.summary()
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+
+callbacks = [
+    EarlyStopping(monitor='val_loss', patience=6, restore_best_weights=True),
+    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3)
+]
+
+history = model.fit(
+    X_train, y_train,
+    epochs=50,
+    batch_size=64,
+    validation_split=0.2,
+    callbacks=callbacks
+)
+test_loss, test_acc = model.evaluate(X_test, y_test)
+print(f"Test Accuracy: {test_acc:.4f}")
+import matplotlib.pyplot as plt
+
+plt.plot(history.history['accuracy'], label='train acc')
+plt.plot(history.history['val_accuracy'], label='val acc')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+!pip install gradio
+import numpy as np
+
+def one_hot_encode(seq):
+    mapping = {'A': [1,0,0,0], 'C': [0,1,0,0], 'G': [0,0,1,0], 'T': [0,0,0,1]}
+    return np.array([mapping.get(base, [0,0,0,0]) for base in seq.upper()])
+
+def preprocess_and_predict(dna_sequence):
+    # Validate input length
+    if len(dna_sequence) < 100:
+        return "Sequence too short! Must be at least 100 bases."
+
+    # Extract first 100 bases chunk (or you can improve to multiple chunks)
+    chunk = dna_sequence[:100]
+
+    # One-hot encode
+    encoded = one_hot_encode(chunk)
+    if encoded.shape != (100,4):
+        return "Invalid DNA sequence detected."
+
+    # Add batch dimension
+    input_data = np.expand_dims(encoded, axis=0)
+
+    # Predict using your trained model
+    prediction = model.predict(input_data)[0][0]
+
+    # Interpret prediction (threshold = 0.5)
+    risk = "High risk" if prediction > 0.5 else "Low risk"
+
+    return f"Predicted disease risk score: {prediction:.4f}\nInterpretation: {risk}"
+  import gradio as gr
+
+iface = gr.Interface(
+    fn=preprocess_and_predict,
+    inputs=gr.Textbox(lines=5, placeholder="Enter DNA sequence (A, C, G, T only)..."),
+    outputs="text",
+    title="Genomic Disease Risk Predictor",
+    description="Enter at least 100 base pairs of DNA sequence to predict disease risk."
+)
+
+iface.launch()
